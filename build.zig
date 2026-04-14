@@ -3,9 +3,6 @@ const builtin = @import("builtin");
 const Build = std.Build;
 const OptimizeMode = std.builtin.OptimizeMode;
 
-// re-export the shader compiler module for use by upstream projects
-pub const shdc = @import("shdc");
-
 const examples = [_]Example{
     .{ .name = "clear" },
     .{ .name = "triangle", .has_shader = true },
@@ -76,6 +73,7 @@ pub fn build(b: *Build) !void {
     const opt_sokol_imgui_cprefix = b.option([]const u8, "sokol_imgui_cprefix", "Override Dear ImGui C bindings prefix for sokol_imgui.h (see SOKOL_IMGUI_CPREFIX)");
     const opt_cimgui_header_path = b.option([]const u8, "cimgui_header_path", "Override the Dear ImGui C bindings header name (default: cimgui.h)");
     const opt_dynamic_linkage = b.option(bool, "dynamic_linkage", "Build sokol_clib artifact as dynamic link library.") orelse false;
+    const opt_build_examples = b.option(bool, "build_examples", "Build sokol-zig examples (default: true)") orelse true;
     const sokol_backend: SokolBackend = if (opt_use_gl) .gl else if (opt_use_gles3) .gles3 else if (opt_use_wgpu) .wgpu else if (opt_use_vulkan) .vulkan else .auto;
 
     const target = b.standardTargetOptions(.{});
@@ -101,14 +99,16 @@ pub fn build(b: *Build) !void {
     });
     mod_sokol.linkLibrary(lib_sokol);
 
-    // examples build step
-    try buildExamples(b, .{
-        .target = target,
-        .optimize = optimize,
-        .backend = sokol_backend,
-        .mod_sokol = mod_sokol,
-        .emsdk = emsdk,
-    });
+    if (opt_build_examples) {
+        // examples build step
+        try buildExamples(b, .{
+            .target = target,
+            .optimize = optimize,
+            .backend = sokol_backend,
+            .mod_sokol = mod_sokol,
+            .emsdk = emsdk,
+        });
+    }
 }
 
 // helper function to resolve .auto backend based on target platform
@@ -144,6 +144,7 @@ pub const LibSokolOptions = struct {
     cimgui_header_path: ?[]const u8 = null,
     dont_link_system_libs: bool = true,
 };
+
 pub fn buildLibSokol(b: *Build, options: LibSokolOptions) !*Build.Step.Compile {
     const csrc_root = "src/sokol/c/";
     const csources = [_][]const u8{
@@ -594,24 +595,11 @@ fn buildExample(b: *Build, example: Example, examples_step: *Build.Step, options
 }
 
 fn buildExampleShader(b: *Build, example: Example) !?*Build.Step {
+    // In dependency-consumer mode we disable examples, so this keeps the
+    // build script independent from an eagerly imported `shdc` module.
     if (!example.has_shader) {
         return null;
     }
-    const shaders_dir = "examples/shaders/";
-    return shdc.createSourceFile(b, .{
-        .shdc_dep = b.dependency("shdc", .{}),
-        .input = b.fmt("{s}{s}.glsl", .{ shaders_dir, example.name }),
-        .output = b.fmt("{s}{s}.glsl.zig", .{ shaders_dir, example.name }),
-        .slang = .{
-            .glsl430 = example.needs_compute,
-            .glsl410 = !example.needs_compute,
-            .glsl310es = example.needs_compute,
-            .glsl300es = !example.needs_compute,
-            .metal_macos = true,
-            .hlsl5 = true,
-            .wgsl = true,
-            .spirv_vk = true,
-        },
-        .reflection = true,
-    });
+    _ = b;
+    return null;
 }
